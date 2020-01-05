@@ -1,0 +1,106 @@
+---
+title: "Regression Models Course Project"
+author: "Daniel Rimdzius"
+date: "1/4/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+subtitle: Relationship of Vehicle Transmission on MPG
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Summary
+This report is interested in exploring the relationship between a set of variables and miles per gallon (MPG). In particular I will show that a manual transmission car is better for gas mileage by roughly 1.8 mpg.
+
+# Exploratory Data Analysis
+We will begin by loading the required packages and datasets, and take a look at the mtcars data.
+```{r}
+require(ggplot2)
+require(dplyr)
+require(tidyr)
+data(mtcars)
+head(mtcars)
+```
+
+A new dataframe is created simply to use better-named variables. Discrete factors are properly changed, as well.
+```{r}
+data <- data.frame(MilesPerGallon = mtcars$mpg,
+             Cylinders = factor(mtcars$cyl), 
+             EngineShape = factor(mtcars$vs, levels = c(0,1), labels = c("V-shaped","Straight")), 
+             Transmission = factor(mtcars$am, levels = c(0,1), labels = c("Automatic", "Manual")), 
+             Gears = factor(mtcars$gear), 
+             Carburetors = factor(mtcars$carb),
+             Weight = mtcars$wt,
+             Displacement = mtcars$disp,
+             Horsepower = mtcars$hp,
+             RearAxleRatio = mtcars$drat,
+             QuarterMile = mtcars$qsec)
+```
+
+Looking at the exploratory boxplot, PLOT1, in the Appendix, we can see there appears to be a clear difference in MPG between automatic and manual transmissions. Unadjusted for any other factors, the median MPG for manual transmissions appears to be `r median(data$MilesPerGallon[data$Transmission==0])` versus the automatic transmission mpg median of `r median(data$MilesPerGallon[data$Transmission==1])`.
+
+PLOT2 in the Appendix shows the effects of each variable plotted against the Miles Per Gallon. Besides Transmission, we can see that there appear to be strong effects from Cylinders, Displacement, Horsepower and Weight.
+
+# Regression Models
+To show that there is a significant difference between the automatic and manual transmissions related to mpg, we can perform a t-test:
+```{r}
+AutomaticMPG <- data[data$Transmission == "Automatic",]$MilesPerGallon
+ManualMPG <- data[data$Transmission == "Manual",]$MilesPerGallon
+t.test(AutomaticMPG, ManualMPG)
+```
+We see there is a p-value of 0.001, and the 95% confidence interval is -3.2 to -11.3 which does not include 0. We can therefore reject the null hypothesis and conclude this is a significant variable. We can create a simple linear model for this:
+```{r}
+fit1 <- lm(MilesPerGallon ~ Transmission, data)
+summary(fit1)
+```
+Again we see we can reject the null hypothesis. However, the R-squared value is only `r summary(fit1)$r.squared`, which means the transmission only account for around `r round(summary(fit1)$r.squared,2)*100`% of the variance. We must add in additional variables to find a better fit.
+
+## Model Selection
+As we saw above in our exploratory data analysis, and shown in PLOT2 in the Appendix, there are several other factors that appear to have a significant effect on mpg. We can setup multiple model fits and analyze the variance.
+```{r}
+fit2 <- lm(MilesPerGallon ~ Transmission + Cylinders, data)
+fit3 <- lm(MilesPerGallon ~ Transmission + Cylinders + Weight, data)
+fit4 <- lm(MilesPerGallon ~ Transmission + Cylinders + Weight + Horsepower, data)
+fit5 <- lm(MilesPerGallon ~ Transmission + Cylinders + Weight + Horsepower + Displacement, data)
+anova(fit1,fit2,fit3,fit4,fit5)
+```
+We see from the ANOVA table that the fit5 model has a P-value of 0.75, while fit4 and below are at 0.029 and below. Displacement is related to the number of cylinders, so we will disregard that term, and choose fit4 as our best-fit line.
+
+```{r}
+BestFit <- fit4
+summary(BestFit)
+shapiro.test(BestFit$residuals)
+```
+The best fit model has an R-squared value of 0.8659, accounting for about 87% of the variance and a strongly significant p-value. We see in PLOT3 in the Apendix the plot of the residuals for this model. They are normally distributed and do not show any heteroskedasticity. We also see in the shapiro test a high P-value ( >> 0.05) which fails to reject normality, supporting our confidence in the analysis of variance.
+
+# Conclusions
+From this best fit model, we can conclude that a manual transmission car is better for MPG. The coefficient shown in the BestFit summary for the Transmission tells us the difference between manual and automatic transmissions is 1.806 mpg.
+
+# Appendix
+```{r PLOT1, fig.height = 2}
+ggplot(data, aes(x = Transmission, y = MilesPerGallon)) +
+      geom_boxplot() +
+      labs(x = "Transmission Type", 
+           y = "Miles Per Gallon (mpg)", 
+           title = "PLOT1: Miles per Gallon as described by Transmission Type")
+```
+
+```{r PLOT2, fig.height = 3}
+levels(data$EngineShape) <- 0:1
+levels(data$Transmission) <- 0:1
+data %>% gather(-MilesPerGallon, key = "Factor", value = "Value") %>% mutate(Value = as.numeric(Value)) %>%
+      ggplot(aes(x = Value, y = MilesPerGallon)) +
+      geom_point(alpha = 0.2) + 
+      facet_wrap(~ Factor, scales= "free", ncol = 5) +
+      labs(x = "", y = "Miles Per Gallon", title = "PLOT2: Effects of Variables on Miles Per Gallon")
+```
+
+```{r PLOT3}
+par(mfrow = c(2,2))
+plot(BestFit)
+title(main = "PLOT3: Residual Plots for the Best Fit Model", sub = "", outer = TRUE, adj = 0.125, line = -1, font.main = 1)
+```
